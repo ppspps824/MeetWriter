@@ -2,11 +2,12 @@ import datetime
 import os
 import threading
 import time
+import wave
+from io import BytesIO
 
 import openai
 import pyaudio
 import PySimpleGUI as sg
-import speech_recognition as sr
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -72,34 +73,64 @@ def save_transcripts_to_file():
     start_time = datetime.datetime.fromtimestamp(recording_start_time)
     end_time = datetime.datetime.fromtimestamp(recording_end_time)
 
-    filename = f"transcript_{now_format}.txt"
-    with open(filename, "w", encoding="utf-8") as f:
-        duration = get_recording_duration()
-        minutes, seconds = divmod(duration, 60)
-        f.write(f"Start Time: {start_time}\n")
-        f.write(f"End Time: {end_time}\n")
-        f.write(f"Recording Duration: {int(minutes):02}:{int(seconds):02}\n\n")
-        f.write("## Summary\n")
-        f.write(summary + "\n")
-        f.write("## Transcript\n")
-        for transcript in transcripts:
-            f.write(transcript + "\n")
-    sg.popup(f"Saved successfully! : {filename}")
+    filepath = sg.popup_get_file(
+        "保存先を指定",
+        save_as=True,
+        file_types=(("Text Files", ".txt"),),
+        default_path=f"transcript_{now_format}.txt",
+    )
+    if filepath:
+        with open(filepath, "w", encoding="utf-8") as f:
+            duration = get_recording_duration()
+            minutes, seconds = divmod(duration, 60)
+            f.write(f"Start Time: {start_time}\n")
+            f.write(f"End Time: {end_time}\n")
+            f.write(f"Recording Duration: {int(minutes):02}:{int(seconds):02}\n\n")
+            f.write("## Summary\n")
+            f.write(summary + "\n")
+            f.write("## Transcript\n")
+            for transcript in transcripts:
+                f.write(transcript + "\n")
+        sg.popup(f"Saved successfully! : {filepath}")
 
 
 def callback(in_data, frame_count, time_info, status):
     global transcripts
     try:
-        audiodata = sr.AudioData(in_data, SAMPLERATE, 2)
-        sprec_text = recognizer.recognize_google(audiodata, language="ja-JP")
-        transcripts.append(sprec_text)
-        print(sprec_text)
-    except sr.UnknownValueError:
-        pass
-    except sr.RequestError as e:
+        buffer = BytesIO()
+
+        wf = wave.open(buffer, "wb")
+        wf.setnchannels(1)
+        wf.setsampwidth(audio.get_sample_size(pyaudio.paInt16))
+        wf.setframerate(SAMPLERATE)
+        wf.writeframes(in_data)
+        wf.close()
+
+        # reset buffer's position to beginning
+        buffer.seek(0)
+        buffer.name = "audio.wav"
+
+        transcript = openai.Audio.transcribe("whisper-1", buffer)
+        transcripts.append(transcript["text"])
+        print(transcript["text"])
+
+    except Exception as e:
+        print(e.args)
         pass
     finally:
         return (None, pyaudio.paContinue)
+
+    # audiodata = sr.AudioData(in_data, SAMPLERATE, 2)
+    # try:
+    #     sprec_text = recognizer.recognize_google(audiodata, language="ja-JP")
+    #     transcripts.append(sprec_text)
+    #     print(sprec_text)
+    # except sr.UnknownValueError:
+    #     pass
+    # except sr.RequestError as e:
+    #     pass
+    # finally:
+    #     return (None, pyaudio.paContinue)
 
 
 def send_messages(text):

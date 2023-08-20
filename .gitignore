@@ -1,3 +1,5 @@
 .venv
 *.txt
 .env
+build/
+dist/
